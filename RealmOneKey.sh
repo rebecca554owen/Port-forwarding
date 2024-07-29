@@ -134,17 +134,36 @@ list_forwards() {
     done
 }
 
-# 添加转发规则
-add_forward() {
+# 添加或修改转发规则
+configure_forward() {
+    local action=$1
+    local start_line=$2
+    local end_line=$3
+
     read -p "请输入本机监听端口: " listen_port
     read -p "请输入目标IP或域名: " target_ip
     read -p "请输入目标端口: " target_port
-    # 追加到config.toml文件
-    cat <<EOF >> /opt/realm/config.toml
-[[endpoints]]
-listen = "0.0.0.0:$listen_port"
-remote = "$target_ip:$target_port"
-EOF
+    read -p "是否使用WebSocket隧道 (yes/no): " use_ws
+
+    if [[ "$use_ws" == "yes" ]]; then
+        read -p "请输入WebSocket的host: " ws_host
+        read -p "请输入WebSocket的path: " ws_path
+        local forward_config="[[endpoints]]
+listen = \"0.0.0.0:$listen_port\"
+remote = \"$target_ip:$target_port\"
+remote_transport = \"ws;host=$ws_host;path=$ws_path\""
+    else
+        local forward_config="[[endpoints]]
+listen = \"0.0.0.0:$listen_port\"
+remote = \"$target_ip:$target_port\""
+    fi
+
+    if [[ "$action" == "add" ]]; then
+        echo -e "$forward_config" >> /opt/realm/config.toml
+    elif [[ "$action" == "modify" ]]; then
+        sed -i "${start_line},${end_line}d" /opt/realm/config.toml
+        echo -e "$forward_config" >> /opt/realm/config.toml
+    fi
 
     start_service
 }
@@ -213,20 +232,12 @@ modify_forward() {
         end_line=$((end_line - 1))
     fi
 
-    read -p "请输入新的本机监听端口: " new_listen_port
-    read -p "请输入新的目标IP或域名: " new_target_ip
-    read -p "请输入新的目标端口: " new_target_port
+    configure_forward "modify" "$start_line" "$end_line"
+}
 
-    # 替换现有规则
-    sed -i "${start_line},${end_line}d" /opt/realm/config.toml
-    cat <<EOF >> /opt/realm/config.toml
-[[endpoints]]
-listen = "0.0.0.0:$new_listen_port"
-remote = "$new_target_ip:$new_target_port"
-EOF
-
-    echo "转发规则已修改。"
-    start_service
+# 添加转发规则
+add_forward() {
+    configure_forward "add"
 }
 
 # 显示菜单的函数

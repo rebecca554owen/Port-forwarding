@@ -190,7 +190,7 @@ modify_forward() {
 
     echo "请输入要修改的转发规则序号，直接按回车返回主菜单。"
     read -p "选择: " choice
-    if [ -z "$choice" ];hen
+    if [ -z "$choice" ]; then
         echo "返回主菜单。"
         return
     fi

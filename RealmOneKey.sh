@@ -136,27 +136,34 @@ delete_forward() {
 # 添加转发规则
 add_forward() {
     while true; do
-        read -p "请输入IP: " ip
-        read -p "请输入端口: " port
+        read -p "请输入本机监听端口: " listen_port
+        read -p "请输入目标IP或域名: " target_ip
+        read -p "请输入目标端口: " target_port
         # 追加到config.toml文件
-        echo "[[endpoints]]
-listen = \"0.0.0.0:$port\"
-remote = \"$ip:$port\"" >> /root/realm/config.toml
+        cat <<EOF >> /root/realm/config.toml
+[[endpoints]]
+listen = "0.0.0.0:$listen_port"
+remote = "$target_ip:$target_port"
+EOF
         
         read -p "是否继续添加(Y/N)? " answer
         if [[ $answer != "Y" && $answer != "y" ]]; then
             break
         fi
     done
+    start_service
 }
 
 # 启动服务
 start_service() {
-    sudo systemctl unmask realm.service
-    sudo systemctl daemon-reload
-    sudo systemctl restart realm.service
-    sudo systemctl enable realm.service
-    echo "realm服务已启动并设置为开机自启。"
+    systemctl daemon-reload
+    systemctl restart realm.service
+    systemctl enable realm.service
+    if systemctl is-active --quiet realm; then
+        echo "realm服务已启动并设置为开机自启。"
+    else
+        echo "启动realm服务失败。"
+    fi
 }
 
 # 停止服务

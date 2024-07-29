@@ -2,7 +2,7 @@
 
 # 检查realm是否已安装及服务状态
 check_realm_status() {
-    if [ -f "/root/realm/realm" ]; then
+    if [ -f "/opt/realm/realm" ]; then
         echo "检测到realm已安装。"
         realm_status="已安装"
         realm_status_color="\033[0;32m" # 绿色
@@ -23,15 +23,19 @@ check_realm_status() {
     fi
 }
 
-# 部署环境的函数
+# 下载并安装realm的函数
 deploy_realm() {
-    mkdir -p /root/realm
-    wget -O /root/realm/realm.tar.gz https://github.com/zhboner/realm/releases/latest/download/realm-x86_64-unknown-linux-gnu.tar.gz
-    tar -xvf /root/realm/realm.tar.gz -C /root/realm
-    chmod +x /root/realm/realm
+    mkdir -p /opt/realm
+    wget -O /opt/realm/realm.tar.gz https://github.com/zhboner/realm/releases/latest/download/realm-x86_64-unknown-linux-gnu.tar.gz
+    tar -xvf /opt/realm/realm.tar.gz -C /opt/realm
+    chmod +x /opt/realm/realm
 
     # 创建配置文件
-    cat <<EOF > /root/realm/config.toml
+    cat <<EOF > /opt/realm/config.toml
+[log]
+level = "warn"
+output = "/var/log/realm.log"
+
 [[endpoints]]
 listen = "0.0.0.0:10000"
 remote = "www.google.com:443"
@@ -50,8 +54,8 @@ User=root
 Restart=on-failure
 RestartSec=5s
 DynamicUser=true
-WorkingDirectory=/root/realm
-ExecStart=/root/realm/realm -c /root/realm/config.toml
+WorkingDirectory=/opt/realm
+ExecStart=/opt/realm/realm -c /opt/realm/config.toml
 
 [Install]
 WantedBy=multi-user.target
@@ -66,9 +70,9 @@ EOF
 
     # 检查服务是否启动成功
     if systemctl is-active --quiet realm; then
-        echo "部署并启动成功。"
+        echo "下载并安装成功。"
     else
-        echo "部署成功，但启动失败。请检查配置。"
+        echo "下载并安装成功，但启动失败。请检查配置。"
     fi
 }
 
@@ -78,7 +82,7 @@ uninstall_realm() {
     systemctl disable realm
     rm -f /etc/systemd/system/realm.service
     systemctl daemon-reload
-    rm -rf /root/realm
+    rm -rf /opt/realm
     echo "realm已被卸载。"
     # 更新realm状态变量
     realm_status="未安装"
@@ -90,15 +94,21 @@ uninstall_realm() {
 # 删除转发规则的函数
 delete_forward() {
     echo "当前转发规则："
-    local IFS=$'\n' # 设置IFS仅以换行符作为分隔符
-    local lines=($(grep -n 'remote =' /root/realm/config.toml)) # 搜索所有包含转发规则的行
+    local IFS=$'\n'
+    local lines=($(grep -n '^\[\[endpoints\]\]' /opt/realm/config.toml))
+
     if [ ${#lines[@]} -eq 0 ]; then
         echo "没有发现任何转发规则。"
         return
     fi
+
     local index=1
-    for line in "${lines[@]}"; do
-        echo "${index}. $(echo $line | cut -d '"' -f 2)" # 提取并显示端口信息
+    local blocks=()
+    for ((i = 0; i < ${#lines[@]}; i++)); do
+        local start_line=$(echo ${lines[$i]} | cut -d ':' -f 1)
+        local end_line=$((${lines[$i + 1]:-$(wc -l < /opt/realm/config.toml)} - 1))
+        blocks+=("$start_line:$end_line")
+        echo "${index}. $(sed -n "${start_line},${end_line}p" /opt/realm/config.toml | grep 'listen\|remote')"
         let index+=1
     done
 
@@ -114,20 +124,16 @@ delete_forward() {
         return
     fi
 
-    if [ $choice -lt 1 ] || [ $choice -gt ${#lines[@]} ]; then
+    if [ $choice -lt 1 ] || [ $choice -gt ${#blocks[@]} ]; then
         echo "选择超出范围，请输入有效序号。"
         return
     fi
 
-    local chosen_line=${lines[$((choice-1))]} # 根据用户选择获取相应行
-    local line_number=$(echo $chosen_line | cut -d ':' -f 1) # 获取行号
+    local chosen_block=${blocks[$((choice - 1))]}
+    local start_line=$(echo $chosen_block | cut -d ':' -f 1)
+    local end_line=$(echo $chosen_block | cut -d ':' -f 2)
 
-    # 计算要删除的范围，从listen开始到remote结束
-    local start_line=$line_number
-    local end_line=$(($line_number + 2))
-
-    # 使用sed删除选中的转发规则
-    sed -i "${start_line},${end_line}d" /root/realm/config.toml
+    sed -i "${start_line},${end_line}d" /opt/realm/config.toml
 
     echo "转发规则已删除。"
     start_service
@@ -140,7 +146,7 @@ add_forward() {
         read -p "请输入目标IP或域名: " target_ip
         read -p "请输入目标端口: " target_port
         # 追加到config.toml文件
-        cat <<EOF >> /root/realm/config.toml
+        cat <<EOF >> /opt/realm/config.toml
 [[endpoints]]
 listen = "0.0.0.0:$listen_port"
 remote = "$target_ip:$target_port"
@@ -178,7 +184,7 @@ show_menu() {
     check_realm_status
     echo "欢迎使用realm一键转发脚本"
     echo "================="
-    echo "1. 部署环境"
+    echo "1. 下载并安装realm"
     echo "2. 添加转发"
     echo "3. 删除转发"
     echo "4. 启动服务"

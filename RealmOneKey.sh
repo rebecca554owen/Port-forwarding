@@ -1,51 +1,45 @@
 #!/bin/bash
 
-# 检查realm是否已安装
-if [ -f "/root/realm/realm" ]; then
-    echo "检测到realm已安装。"
-    realm_status="已安装"
-    realm_status_color="\033[0;32m" # 绿色
-else
-    echo "realm未安装。"
-    realm_status="未安装"
-    realm_status_color="\033[0;31m" # 红色
-fi
+# 检查realm是否已安装及服务状态
+check_realm_status() {
+    if [ -f "/root/realm/realm" ]; then
+        echo "检测到realm已安装。"
+        realm_status="已安装"
+        realm_status_color="\033[0;32m" # 绿色
 
-# 检查realm服务状态
-check_realm_service_status() {
-    if systemctl is-active --quiet realm; then
-        echo -e "\033[0;32m启用\033[0m" # 绿色
+        if systemctl is-active --quiet realm; then
+            realm_service_status="启用"
+            realm_service_color="\033[0;32m" # 绿色
+        else
+            realm_service_status="未启用"
+            realm_service_color="\033[0;31m" # 红色
+        fi
     else
-        echo -e "\033[0;31m未启用\033[0m" # 红色
+        echo "realm未安装。"
+        realm_status="未安装"
+        realm_status_color="\033[0;31m" # 红色
+        realm_service_status="未启用"
+        realm_service_color="\033[0;31m" # 红色
     fi
-}
-
-# 显示菜单的函数
-show_menu() {
-    clear
-    echo "欢迎使用realm一键转发脚本"
-    echo "================="
-    echo "1. 部署环境"
-    echo "2. 添加转发"
-    echo "3. 删除转发"
-    echo "4. 启动服务"
-    echo "5. 停止服务"
-    echo "6. 一键卸载"
-    echo "================="
-    echo -e "realm 状态：${realm_status_color}${realm_status}\033[0m"
-    echo -n "realm 转发状态："
-    check_realm_service_status
 }
 
 # 部署环境的函数
 deploy_realm() {
     mkdir -p /root/realm
-    cd /root/realm
-    wget -O realm.tar.gz https://github.com/zhboner/realm/releases/download/v2.6.0/realm-x86_64-unknown-linux-gnu.tar.gz
-    tar -xvf realm.tar.gz
-    chmod +x realm
+    wget -O /root/realm/realm.tar.gz https://github.com/zhboner/realm/releases/latest/download/realm-x86_64-unknown-linux-gnu.tar.gz
+    tar -xvf /root/realm/realm.tar.gz -C /root/realm
+    chmod +x /root/realm/realm
+
+    # 创建配置文件
+    cat <<EOF > /root/realm/config.toml
+[[endpoints]]
+listen = "0.0.0.0:10000"
+remote = "www.google.com:443"
+EOF
+
     # 创建服务文件
-    echo "[Unit]
+    cat <<EOF > /etc/systemd/system/realm.service
+[Unit]
 Description=realm
 After=network-online.target
 Wants=network-online.target systemd-networkd-wait-online.service
@@ -60,12 +54,22 @@ WorkingDirectory=/root/realm
 ExecStart=/root/realm/realm -c /root/realm/config.toml
 
 [Install]
-WantedBy=multi-user.target" > /etc/systemd/system/realm.service
+WantedBy=multi-user.target
+EOF
+
     systemctl daemon-reload
+    systemctl enable --now realm
+
     # 更新realm状态变量
     realm_status="已安装"
     realm_status_color="\033[0;32m" # 绿色
-    echo "部署完成。"
+
+    # 检查服务是否启动成功
+    if systemctl is-active --quiet realm; then
+        echo "部署并启动成功。"
+    else
+        echo "部署成功，但启动失败。请检查配置。"
+    fi
 }
 
 # 卸载realm
@@ -79,6 +83,8 @@ uninstall_realm() {
     # 更新realm状态变量
     realm_status="未安装"
     realm_status_color="\033[0;31m" # 红色
+    realm_service_status="未启用"
+    realm_service_color="\033[0;31m" # 红色
 }
 
 # 删除转发规则的函数
@@ -124,6 +130,7 @@ delete_forward() {
     sed -i "${start_line},${end_line}d" /root/realm/config.toml
 
     echo "转发规则已删除。"
+    start_service
 }
 
 # 添加转发规则
@@ -156,6 +163,23 @@ start_service() {
 stop_service() {
     systemctl stop realm
     echo "realm服务已停止。"
+}
+
+# 显示菜单的函数
+show_menu() {
+    clear
+    check_realm_status
+    echo "欢迎使用realm一键转发脚本"
+    echo "================="
+    echo "1. 部署环境"
+    echo "2. 添加转发"
+    echo "3. 删除转发"
+    echo "4. 启动服务"
+    echo "5. 停止服务"
+    echo "6. 一键卸载"
+    echo "================="
+    echo -e "realm 状态：${realm_status_color}${realm_status}\033[0m"
+    echo -e "realm 服务状态：${realm_service_color}${realm_service_status}\033[0m"
 }
 
 # 主循环

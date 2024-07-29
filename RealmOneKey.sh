@@ -88,7 +88,11 @@ EOF
 # 停止服务
 stop_service() {
     systemctl stop realm
-    echo "realm服务已停止。"
+    if systemctl is-active --quiet realm; then
+        echo "停止realm服务失败。"
+    else
+        echo "realm服务已停止。"
+    fi
 }
 
 # 卸载realm
@@ -186,7 +190,7 @@ modify_forward() {
 
     echo "请输入要修改的转发规则序号，直接按回车返回主菜单。"
     read -p "选择: " choice
-    if [ -z "$choice" ]; then
+    if [ -z "$choice" ];hen
         echo "返回主菜单。"
         return
     fi
@@ -204,7 +208,7 @@ modify_forward() {
 
     local start_line=$(echo ${lines[$((choice - 1))]} | cut -d ':' -f 1)
     local end_line=$(wc -l < /opt/realm/config.toml)
-    if [ $choice -lt ${#lines[@]}]; then
+    if [ $choice -lt ${#lines[@]} ]; then
         end_line=$(echo ${lines[$choice]} | cut -d ':' -f 1)
         end_line=$((end_line - 1))
     fi
